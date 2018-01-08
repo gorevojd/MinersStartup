@@ -1,0 +1,34 @@
+{
+    "algo": "cryptonight",
+    "background": false,
+    "colors": true,
+    "donate-level": 1,
+    "log-file": null,
+    "print-time": 20,
+    "retries": 5,
+    "retry-pause": 5,
+    "threads": [
+        {
+            "index": 0,
+            "threads": 24,
+            "blocks": 12,
+            "bfactor": 6,
+            "bsleep": 25,
+            "affine_to_cpu": false
+        }
+    ],
+    "pools": [
+        {
+            "url": "pool.minexmr.com:7777",
+            "user": "43rWNihGvB8DKZd7ea5GnhaLAz9mZKHvmJddCVcniWtViBEazoUzq2tMFrBS6eyK7c8tC9wZ6D5VXfA1PNryeMgRDxr97nw",
+            "pass": "",
+            "keepalive": true,
+            "nicehash": false
+        }
+    ],
+    "api": {
+        "port": 0,
+        "access-token": null,
+        "worker-id": null
+    }
+}
